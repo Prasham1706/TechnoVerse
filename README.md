@@ -23,7 +23,7 @@ model, and it never accepts checkpoint uploads from public users.
 ## Included files
 
 - `app.py`: hosted Gradio application.
-- `api/index.py`: FastAPI/Gradio entrypoint for Vercel.
+- `index.py`: root FastAPI/Gradio entrypoint for Vercel.
 - `model.py`: complete DA-SwinSR architecture.
 - `inference.py`: preprocessing and postprocessing contract.
 - `degradation_encoder.py`: compatibility module.

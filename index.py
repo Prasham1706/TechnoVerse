@@ -1,4 +1,4 @@
-"""Vercel ASGI entrypoint for the standalone DA-SwinSR Gradio app."""
+"""Vercel root entrypoint for the standalone DA-SwinSR Gradio app."""
 
 from fastapi import FastAPI
 import gradio as gr
