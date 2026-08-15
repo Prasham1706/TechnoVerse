@@ -45,8 +45,11 @@ mounts Google Drive and starts a temporary tunnel, while a hosted deployment
 needs a normal web process and repo-relative files.
 
 This repository also supports direct CPU inference on Vercel through the root
-`index.py` FastAPI entrypoint. PyTorch expands the uncompressed Python Function
-bundle to about 922 MB, although the checkpoint itself is only 6.88 MiB.
+`index.py` FastAPI entrypoint. The browser sends one `.npy` payload to
+`/api/restore` and receives all previews and downloads in the same response, so
+no temporary server files or stateful queue are required. PyTorch expands the
+uncompressed Python Function bundle to about 922 MB, although the checkpoint
+itself is only 6.88 MiB.
 
 In the Vercel project:
 
@@ -54,7 +57,8 @@ In the Vercel project:
 2. Add the Production and Preview environment variable
    `VERCEL_SUPPORT_LARGE_FUNCTIONS=1`.
 3. Deploy the repository with Python 3.12.
-4. Verify that `/` and `/config` both return HTTP 200 before using the demo.
+4. Verify that `/` returns HTTP 200, then run one valid 128 x 128 `.npy` input
+   and confirm that all three previews and both downloads appear.
 
 Do not add a catch-all rewrite to `/api/index`. Current Vercel FastAPI
 detection serves the root `index.py` application directly; that legacy rewrite

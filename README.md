@@ -13,7 +13,8 @@ pinned: false
 # DA-SwinSR semiconductor image restoration demo
 
 This repository contains the team's validation-selected, already-trained
-degradation-aware Swin Transformer and a standalone Gradio inference app.
+degradation-aware Swin Transformer, a Gradio inference app for Spaces/local
+use, and a stateless FastAPI website for Vercel.
 It accepts one finite grayscale NumPy array with shape 128 x 128 and produces
 a restored float32 array with shape 256 x 256.
 
@@ -23,7 +24,8 @@ model, and it never accepts checkpoint uploads from public users.
 ## Included files
 
 - `app.py`: hosted Gradio application.
-- `index.py`: root FastAPI/Gradio entrypoint for Vercel.
+- `index.py`: root entrypoint for the Vercel website.
+- `vercel_app.py`: stateless Vercel API and responsive browser interface.
 - `model.py`: complete DA-SwinSR architecture.
 - `inference.py`: preprocessing and postprocessing contract.
 - `degradation_encoder.py`: compatibility module.
