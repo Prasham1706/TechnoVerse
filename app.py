@@ -226,7 +226,8 @@ matching ground-truth image.
 """
         return (
             _display_uint8(lr_array),
-            (_display_uint8(bicubic), _display_uint8(restored)),
+            _display_uint8(bicubic),
+            _display_uint8(restored),
             status,
             str(npy_path),
             str(png_path),
@@ -234,6 +235,7 @@ matching ground-truth image.
         )
     except (ValueError, TypeError, FileNotFoundError) as error:
         return (
+            None,
             None,
             None,
             f"### Input needs attention\n{error}",
@@ -249,6 +251,7 @@ matching ground-truth image.
 def reset_demo():
     """Restore every interactive component to a clear initial state."""
     return (
+        None,
         None,
         None,
         None,
@@ -304,7 +307,7 @@ CSS = """
 #status-panel { border-left: 4px solid #2563eb; padding: 6px 4px 6px 15px; margin-top: 8px; }
 #comparison-heading { margin-top: 22px; }
 .preview-card { min-width: 280px; }
-#slider-card { border: 1px solid #60a5fa; box-shadow: 0 10px 30px rgba(37, 99, 235, .10); }
+#model-result-card { border: 1px solid #60a5fa; box-shadow: 0 10px 30px rgba(37, 99, 235, .10); }
 .panel-subtitle { color: var(--body-text-color-subdued); margin-top: -6px; font-size: .9rem; }
 .download-note { font-size: .9rem; color: var(--body-text-color-subdued); }
 .metric-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 12px 0; }
@@ -393,9 +396,9 @@ values · no NaN/Inf · maximum 1 MB
     gr.Markdown(
         """
 ## Step 3 — Compare the results
-The left panel previews the noisy input. Drag the divider in the comparison
-panel to inspect **bicubic interpolation versus DA-SwinSR**. All previews use
-the same clipped `[0, 1]` display range.
+Compare the noisy input, standard bicubic interpolation, and the DA-SwinSR
+restoration side by side. All previews use the same clipped `[0, 1]` display
+range.
 """,
         elem_id="comparison-heading",
     )
@@ -407,10 +410,22 @@ the same clipped `[0, 1]` display range.
                 image_mode="L",
                 height=390,
             )
-        with gr.Column(scale=2, elem_classes=["surface-card", "preview-card"], elem_id="slider-card"):
-            gr.Markdown("### Baseline ↔ model result\n<div class='panel-subtitle'>Drag to compare two 256 × 256 outputs</div>")
-            comparison_slider = gr.ImageSlider(
-                label="Bicubic baseline ↔ DA-SwinSR restoration",
+        with gr.Column(scale=1, elem_classes=["surface-card", "preview-card"]):
+            gr.Markdown("### Bicubic baseline\n<div class='panel-subtitle'>256 × 256 standard interpolation</div>")
+            bicubic_preview = gr.Image(
+                show_label=False,
+                image_mode="L",
+                height=390,
+            )
+        with gr.Column(
+            scale=1,
+            elem_classes=["surface-card", "preview-card"],
+            elem_id="model-result-card",
+        ):
+            gr.Markdown("### DA-SwinSR restoration\n<div class='panel-subtitle'>256 × 256 trained-model output</div>")
+            restored_preview = gr.Image(
+                show_label=False,
+                image_mode="L",
                 height=390,
             )
 
@@ -476,7 +491,8 @@ high-resolution refinement with a bicubic residual path.
         inputs=[input_file],
         outputs=[
             lr_preview,
-            comparison_slider,
+            bicubic_preview,
+            restored_preview,
             status_output,
             npy_download,
             png_download,
@@ -485,7 +501,7 @@ high-resolution refinement with a bicubic residual path.
         concurrency_limit=1,
         api_visibility="private",
         show_progress="full",
-        show_progress_on=[comparison_slider],
+        show_progress_on=[restored_preview],
         scroll_to_output=True,
         trigger_mode="once",
     )
@@ -495,7 +511,8 @@ high-resolution refinement with a bicubic residual path.
         outputs=[
             input_file,
             lr_preview,
-            comparison_slider,
+            bicubic_preview,
+            restored_preview,
             status_output,
             npy_download,
             png_download,
