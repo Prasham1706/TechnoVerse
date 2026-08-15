@@ -6,15 +6,13 @@ from users and it never trains or fine-tunes the model.
 
 from __future__ import annotations
 
-import atexit
+import base64
 import hashlib
+import io
 import json
 from pathlib import Path
-import shutil
-import tempfile
 import time
 import traceback
-import uuid
 
 import gradio as gr
 import numpy as np
@@ -33,10 +31,6 @@ EXPECTED_CHECKPOINT_SHA256 = (
     "9eae0b4a5fe9d978dc14603e64cf2ac5b099d98e8ecd02af68b8624ebd06549b"
 )
 EXPECTED_PARAMETER_COUNT = 568_681
-
-OUTPUT_DIR = Path(tempfile.mkdtemp(prefix="da_swinsr_outputs_"))
-atexit.register(lambda: shutil.rmtree(OUTPUT_DIR, ignore_errors=True))
-
 
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
@@ -112,6 +106,50 @@ def _display_uint8(array: np.ndarray) -> np.ndarray:
     return np.rint(scaled * 255.0).astype(np.uint8)
 
 
+def _png_bytes(array: np.ndarray) -> bytes:
+    """Encode one display-ready grayscale image without creating a temp file."""
+    buffer = io.BytesIO()
+    Image.fromarray(_display_uint8(array), mode="L").save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def _preview_html(array: np.ndarray | None, alt_text: str) -> str:
+    """Return an inline image so Vercel never needs to serve a /tmp asset."""
+    if array is None:
+        return (
+            '<div class="preview-frame preview-empty">'
+            '<span>Result appears here</span></div>'
+        )
+    encoded = base64.b64encode(_png_bytes(array)).decode("ascii")
+    return (
+        '<div class="preview-frame">'
+        f'<img src="data:image/png;base64,{encoded}" alt="{alt_text}">'
+        '</div>'
+    )
+
+
+def _download_html(
+    payload: bytes,
+    mime_type: str,
+    filename: str,
+    title: str,
+    detail: str,
+) -> str:
+    """Build a trusted inline download link that survives serverless routing."""
+    encoded = base64.b64encode(payload).decode("ascii")
+    return f"""
+<a class="download-button" href="data:{mime_type};base64,{encoded}"
+   download="{filename}">
+  <span><strong>{title}</strong><small>{detail}</small></span>
+  <b aria-hidden="true">Download</b>
+</a>
+"""
+
+
+EMPTY_PREVIEW = _preview_html(None, "")
+EMPTY_DOWNLOAD = '<div class="download-empty">Available after restoration</div>'
+
+
 def _uploaded_path(uploaded_file: str | Path | None) -> Path:
     if uploaded_file is None:
         raise ValueError("Upload one 128x128 grayscale .npy file first.")
@@ -123,16 +161,6 @@ def _uploaded_path(uploaded_file: str | Path | None) -> Path:
     if path.stat().st_size > 1024 * 1024:
         raise ValueError("Input exceeds the 1 MB upload limit.")
     return path
-
-
-def _prune_outputs(max_age_seconds: int = 600) -> None:
-    cutoff = time.time() - max_age_seconds
-    for path in OUTPUT_DIR.iterdir():
-        try:
-            if path.is_file() and path.stat().st_mtime < cutoff:
-                path.unlink()
-        except OSError:
-            pass
 
 
 def _load_lr_array(uploaded_file: str | Path | None) -> np.ndarray:
@@ -163,7 +191,7 @@ def _load_lr_array(uploaded_file: str | Path | None) -> np.ndarray:
 def inspect_upload(uploaded_file: str | Path | None):
     """Preview and describe a selected input before model inference."""
     if uploaded_file is None:
-        return None, DEFAULT_STATUS
+        return EMPTY_PREVIEW, DEFAULT_STATUS
     try:
         lr_array = _load_lr_array(uploaded_file)
         status = f"""
@@ -173,15 +201,14 @@ def inspect_upload(uploaded_file: str | Path | None):
 
 The file is ready. Select **Run restoration** to generate the 256 × 256 result.
 """
-        return _display_uint8(lr_array), status
+        return _preview_html(lr_array, "Uploaded noisy low-resolution input"), status
     except (ValueError, TypeError, FileNotFoundError) as error:
-        return None, f"### Input needs attention\n{error}"
+        return EMPTY_PREVIEW, f"### Input needs attention\n{error}"
 
 
 def restore_for_demo(uploaded_file: str | Path | None):
     """Validate one LR array, restore it, and return previews/downloads."""
     try:
-        _prune_outputs()
         lr_array = _load_lr_array(uploaded_file)
 
         bicubic = F.interpolate(
@@ -204,11 +231,23 @@ def restore_for_demo(uploaded_file: str | Path | None):
         if restored.shape != (256, 256) or not np.isfinite(restored).all():
             raise RuntimeError("The model returned an invalid output array.")
 
-        run_id = uuid.uuid4().hex[:10]
-        npy_path = OUTPUT_DIR / f"DA_SwinSR_restored_{run_id}.npy"
-        png_path = OUTPUT_DIR / f"DA_SwinSR_preview_{run_id}.png"
-        np.save(npy_path, restored.astype(np.float32, copy=False))
-        Image.fromarray(_display_uint8(restored), mode="L").save(png_path)
+        npy_buffer = io.BytesIO()
+        np.save(npy_buffer, restored.astype(np.float32, copy=False))
+        png_payload = _png_bytes(restored)
+        npy_download_html = _download_html(
+            npy_buffer.getvalue(),
+            "application/octet-stream",
+            "DA_SwinSR_restored.npy",
+            "Scientific array (.npy)",
+            "256 x 256 · float32",
+        )
+        png_download_html = _download_html(
+            png_payload,
+            "image/png",
+            "DA_SwinSR_preview.png",
+            "Visual preview (.png)",
+            "256 x 256 · display clipped to [0, 1]",
+        )
 
         status = f"""
 ### ✓ Restoration complete
@@ -225,22 +264,22 @@ matching ground-truth image.
 - **Tensor transformation:** `[1, 1, 128, 128] → [1, 1, 256, 256]`
 """
         return (
-            _display_uint8(lr_array),
-            _display_uint8(bicubic),
-            _display_uint8(restored),
+            _preview_html(lr_array, "Uploaded noisy low-resolution input"),
+            _preview_html(bicubic, "Bicubic two-times baseline"),
+            _preview_html(restored, "DA-SwinSR restored output"),
             status,
-            str(npy_path),
-            str(png_path),
+            npy_download_html,
+            png_download_html,
             technical_details,
         )
     except (ValueError, TypeError, FileNotFoundError) as error:
         return (
-            None,
-            None,
-            None,
+            EMPTY_PREVIEW,
+            EMPTY_PREVIEW,
+            EMPTY_PREVIEW,
             f"### Input needs attention\n{error}",
-            None,
-            None,
+            EMPTY_DOWNLOAD,
+            EMPTY_DOWNLOAD,
             DEFAULT_TECHNICAL_DETAILS,
         )
     except Exception as error:
@@ -252,12 +291,12 @@ def reset_demo():
     """Restore every interactive component to a clear initial state."""
     return (
         None,
-        None,
-        None,
-        None,
+        EMPTY_PREVIEW,
+        EMPTY_PREVIEW,
+        EMPTY_PREVIEW,
         DEFAULT_STATUS,
-        None,
-        None,
+        EMPTY_DOWNLOAD,
+        EMPTY_DOWNLOAD,
         DEFAULT_TECHNICAL_DETAILS,
     )
 
@@ -309,7 +348,32 @@ CSS = """
 .preview-card { min-width: 280px; }
 #model-result-card { border: 1px solid #60a5fa; box-shadow: 0 10px 30px rgba(37, 99, 235, .10); }
 .panel-subtitle { color: var(--body-text-color-subdued); margin-top: -6px; font-size: .9rem; }
+.preview-frame {
+  width: 100%; min-height: 360px; margin-top: 14px; border-radius: 12px;
+  background: #111827; display: grid; place-items: center; overflow: hidden;
+}
+.preview-frame img {
+  display: block; width: 100%; height: 100%; max-height: 390px;
+  object-fit: contain; image-rendering: auto;
+}
+.preview-empty {
+  color: #94a3b8; border: 1px dashed #475569; font-size: .9rem;
+}
 .download-note { font-size: .9rem; color: var(--body-text-color-subdued); }
+.download-button {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  margin-top: 10px; padding: 14px 16px; border: 1px solid #3b82f6;
+  border-radius: 12px; background: rgba(37, 99, 235, .08);
+  color: var(--body-text-color) !important; text-decoration: none !important;
+}
+.download-button:hover { background: rgba(37, 99, 235, .14); }
+.download-button span { display: flex; flex-direction: column; gap: 3px; }
+.download-button small { color: var(--body-text-color-subdued); }
+.download-button b { color: #60a5fa; font-size: .86rem; }
+.download-empty {
+  margin-top: 10px; padding: 15px 16px; border: 1px dashed var(--border-color-primary);
+  border-radius: 12px; color: var(--body-text-color-subdued); font-size: .9rem;
+}
 .metric-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 12px 0; }
 .metric-card { padding: 18px; }
 .metric-value { color: #2563eb; font-size: 1.75rem; line-height: 1; font-weight: 850; }
@@ -405,17 +469,15 @@ range.
     with gr.Row(equal_height=True, elem_id="comparison-row"):
         with gr.Column(scale=1, elem_classes=["surface-card", "preview-card"]):
             gr.Markdown("### Original input\n<div class='panel-subtitle'>128 × 128 noisy capture</div>")
-            lr_preview = gr.Image(
-                show_label=False,
-                image_mode="L",
-                height=390,
+            lr_preview = gr.HTML(
+                value=EMPTY_PREVIEW,
+                sanitize_html=False,
             )
         with gr.Column(scale=1, elem_classes=["surface-card", "preview-card"]):
             gr.Markdown("### Bicubic baseline\n<div class='panel-subtitle'>256 × 256 standard interpolation</div>")
-            bicubic_preview = gr.Image(
-                show_label=False,
-                image_mode="L",
-                height=390,
+            bicubic_preview = gr.HTML(
+                value=EMPTY_PREVIEW,
+                sanitize_html=False,
             )
         with gr.Column(
             scale=1,
@@ -423,18 +485,17 @@ range.
             elem_id="model-result-card",
         ):
             gr.Markdown("### DA-SwinSR restoration\n<div class='panel-subtitle'>256 × 256 trained-model output</div>")
-            restored_preview = gr.Image(
-                show_label=False,
-                image_mode="L",
-                height=390,
+            restored_preview = gr.HTML(
+                value=EMPTY_PREVIEW,
+                sanitize_html=False,
             )
 
     with gr.Row(elem_id="downloads-row"):
         with gr.Column(scale=1, elem_classes=["surface-card"]):
             gr.Markdown("### Download results\nFiles appear here after a successful restoration.")
             with gr.Row():
-                npy_download = gr.File(label="Scientific output · float32 .npy")
-                png_download = gr.File(label="Visual preview · 8-bit .png")
+                npy_download = gr.HTML(value=EMPTY_DOWNLOAD, sanitize_html=False)
+                png_download = gr.HTML(value=EMPTY_DOWNLOAD, sanitize_html=False)
         with gr.Column(scale=1, elem_classes=["surface-card"]):
             gr.Markdown(
                 """
