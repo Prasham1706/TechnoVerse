@@ -23,6 +23,7 @@ model, and it never accepts checkpoint uploads from public users.
 ## Included files
 
 - `app.py`: hosted Gradio application.
+- `api/index.py`: FastAPI/Gradio entrypoint for Vercel.
 - `model.py`: complete DA-SwinSR architecture.
 - `inference.py`: preprocessing and postprocessing contract.
 - `degradation_encoder.py`: compatibility module.
@@ -55,5 +56,4 @@ Keep the original raw capture. Restored images are research outputs for assisted
 viewing and must not replace original measurements. Cross-tool, cross-lot,
 downstream defect and metrology performance have not been established.
 
-See `DEPLOYMENT.md` for private GitHub, Hugging Face Spaces and optional Vercel
-instructions.
+See `DEPLOYMENT.md` for GitHub, Hugging Face Spaces and Vercel instructions.
