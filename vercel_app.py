@@ -169,7 +169,9 @@ def home() -> HTMLResponse:
 
 @app.post("/api/restore")
 async def restore(request: Request) -> JSONResponse:
-    content_type = request.headers.get("content-type", "")
+    content_type = (
+        request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    )
     if content_type not in ("application/octet-stream", "application/x-npy"):
         raise HTTPException(status_code=415, detail="Expected a NumPy file upload.")
     content_length = request.headers.get("content-length")
@@ -195,7 +197,13 @@ async def restore(request: Request) -> JSONResponse:
             status_code=500,
             detail="Restoration failed. Please try again or contact the demo operator.",
         ) from error
-    return JSONResponse(result, headers={"Cache-Control": "no-store"})
+    return JSONResponse(
+        result,
+        headers={
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 INDEX_HTML = """<!doctype html>
@@ -345,12 +353,19 @@ INDEX_HTML = """<!doctype html>
     const resetButton = document.getElementById('reset');
     const statusBox = document.getElementById('status');
     let selectedFile = null;
+    let requestVersion = 0;
+    let activeController = null;
 
     function setStatus(title, message, kind='') {
       statusBox.className = 'status ' + kind;
       const heading = document.createElement('strong'); heading.textContent = title;
       const copy = document.createElement('span'); copy.className = 'muted'; copy.textContent = message;
       statusBox.replaceChildren(heading, copy);
+    }
+    function invalidatePendingRequest() {
+      requestVersion += 1;
+      if (activeController) activeController.abort();
+      activeController = null;
     }
     function clearResults() {
       for (const id of ['input-image','bicubic-image','restored-image']) {
@@ -366,6 +381,7 @@ INDEX_HTML = """<!doctype html>
       image.style.display = 'block'; image.previousElementSibling.style.display = 'none';
     }
     fileInput.addEventListener('change', () => {
+      invalidatePendingRequest();
       clearResults(); selectedFile = fileInput.files[0] || null;
       if (!selectedFile) { runButton.disabled = true; return; }
       const validSuffix = selectedFile.name.toLowerCase().endsWith('.npy');
@@ -380,6 +396,7 @@ INDEX_HTML = """<!doctype html>
       setStatus('File selected', 'Select Run restoration to validate the array and generate the 256 × 256 result.');
     });
     resetButton.addEventListener('click', () => {
+      invalidatePendingRequest();
       selectedFile = null; fileInput.value = ''; runButton.disabled = true; clearResults();
       document.getElementById('file-title').textContent = 'Choose a 128 × 128 NoisyLR .npy file';
       document.getElementById('file-note').textContent = 'The file stays in this page until you select Run restoration.';
@@ -387,11 +404,27 @@ INDEX_HTML = """<!doctype html>
     });
     runButton.addEventListener('click', async () => {
       if (!selectedFile) return;
+      const thisRequest = ++requestVersion;
+      const fileToRun = selectedFile;
+      activeController = new AbortController();
       runButton.disabled = true; setStatus('Restoration in progress', 'The pretrained model is processing this input.');
+      let failureTitle = 'Server unavailable';
       try {
-        const response = await fetch('/api/restore', { method: 'POST', headers: {'Content-Type':'application/octet-stream'}, body: await selectedFile.arrayBuffer() });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.detail || 'Restoration failed.');
+        const response = await fetch('/api/restore', {
+          method: 'POST', headers: {'Content-Type':'application/octet-stream'},
+          body: fileToRun, signal: activeController.signal
+        });
+        const raw = await response.text();
+        let data = null;
+        try { data = raw ? JSON.parse(raw) : null; } catch { data = null; }
+        if (!response.ok) {
+          failureTitle = response.status < 500 ? 'Input needs attention' : 'Server unavailable';
+          throw new Error(data?.detail || (response.status >= 500
+            ? 'The restoration server is temporarily unavailable.'
+            : `Request failed (${response.status}).`));
+        }
+        if (!data) throw new Error('The server returned an invalid response.');
+        if (thisRequest !== requestVersion) return;
         showImage('input-image', data.input_png); showImage('bicubic-image', data.bicubic_png); showImage('restored-image', data.restored_png);
         const npy = document.getElementById('npy-download'); npy.href = 'data:application/octet-stream;base64,' + data.restored_npy; npy.style.display = 'flex';
         const png = document.getElementById('png-download'); png.href = 'data:image/png;base64,' + data.restored_png; png.style.display = 'flex';
@@ -399,8 +432,16 @@ INDEX_HTML = """<!doctype html>
         document.getElementById('technical-copy').textContent = `${data.device} · ${data.parameters.toLocaleString()} parameters · ${data.prediction_ms} ms model-call time · output range ${data.output_min} to ${data.output_max}.`;
         setStatus('✓ Restoration complete', `128 × 128 → 256 × 256 · ${data.prediction_ms} ms model-call time. Per-image metrics need matching ground truth.`, 'success');
         document.querySelector('.results-title').scrollIntoView({behavior:'smooth', block:'start'});
-      } catch (error) { clearResults(); setStatus('Input needs attention', error.message, 'error'); }
-      finally { runButton.disabled = !selectedFile; }
+      } catch (error) {
+        if (error.name !== 'AbortError' && thisRequest === requestVersion) {
+          clearResults(); setStatus(failureTitle, error.message, 'error');
+        }
+      } finally {
+        if (thisRequest === requestVersion) {
+          activeController = null;
+          runButton.disabled = !selectedFile;
+        }
+      }
     });
   </script>
 </body>
