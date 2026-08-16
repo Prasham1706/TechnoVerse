@@ -569,7 +569,6 @@ not a replacement measurement or an automated production-inspection decision.
       <div class="vp-stat">> 31.25 dB <small>Maintained on Unseen Noise Permutations</small></div>
       <div class="vp-point"><strong>The Point:</strong> Highlight that your model didn't just 'memorize' training noise patterns.</div>
       <div class="vp-data"><strong>The Data:</strong> Results show PSNR staying above 31.25 dB even on Out-of-Distribution (OOD) degradation sequences (like SDG and DSG) that were intentionally held out during training.</div>
-      <div class="vp-win"><strong>Why it wins:</strong> Most participants will overfit to the training noise. Proving your model works on 'unseen' degradation permutations demonstrates industrial-grade reliability.</div>
     </article>
 
     <article class="vp-card vp-card-green">
@@ -577,7 +576,6 @@ not a replacement measurement or an automated production-inspection decision.
       <div class="vp-stat">571k Params <small>19.7 ms GPU latency · 89.9 MB memory</small></div>
       <div class="vp-point"><strong>The Point:</strong> Maximum performance per Watt / Compute footprint (Green AI).</div>
       <div class="vp-data"><strong>The Data:</strong> Achieves near-SOTA results with only ~571k parameters. Fast (19.7–20.9 ms per image) and a tiny GPU footprint (89.9 MB), ideal for real-time semiconductor inspection.</div>
-      <div class="vp-win"><strong>Why it wins:</strong> Judges love 'Green AI' and deployability. Compare this to standard Swin or ResNet architectures which use 10M–50M parameters.</div>
     </article>
 
     <article class="vp-card vp-card-purple">
@@ -585,7 +583,6 @@ not a replacement measurement or an automated production-inspection decision.
       <div class="vp-stat">33.01 dB <small>Peak PSNR (GSD/SGD) · 0.8580 SSIM</small></div>
       <div class="vp-point"><strong>The Point:</strong> Structural consistency across all six degradation orders.</div>
       <div class="vp-data"><strong>The Data:</strong> Peak PSNR of 33.01 dB (GSD/SGD order) and a very stable SSIM mean across the internal test set.</div>
-      <div class="vp-win"><strong>Why it wins:</strong> PSNR > 30 dB is high-quality restoration. Proves the Swin Transformer's attention mechanism effectively removes noise while preserving sharp sub-micron line edges.</div>
     </article>
 
     <article class="vp-card vp-card-amber">
@@ -593,7 +590,6 @@ not a replacement measurement or an automated production-inspection decision.
       <div class="vp-stat">48-D Latent <small>6 FiLM Modulation Layers</small></div>
       <div class="vp-point"><strong>The Point:</strong> Explain the underlying mechanism & technical sophistication.</div>
       <div class="vp-data"><strong>The Detail:</strong> Highlight the Degradation Encoder and the use of FiLM (Feature-wise Linear Modulation) layers to dynamically modulate feature representations.</div>
-      <div class="vp-win"><strong>Why it wins:</strong> Shows you didn't just use a 'black box' model. You engineered a solution that explicitly conditions the restoration process on the type of degradation it detects.</div>
     </article>
   </div>
 </section>
