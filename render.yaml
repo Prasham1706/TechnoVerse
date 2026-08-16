@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: technoverse-restoration
+    runtime: python
+    plan: free
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python app.py"
+    healthCheckPath: /
+    envVars:
+      - key: PYTHONDONTWRITEBYTECODE
+        value: "1"
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: GRADIO_SERVER_NAME
+        value: "0.0.0.0"
+      - key: GRADIO_SERVER_PORT
+        value: "7860"
+    autoDeploy: true

@@ -1,6 +1,8 @@
 --extra-index-url https://download.pytorch.org/whl/cpu
-fastapi>=0.115,<1
 gradio==6.24.0
 numpy==2.0.2
 Pillow==11.3.0
 torch==2.8.0+cpu
+fastapi>=0.115,<1
+starlette
+uvicorn[standard]

@@ -1,8 +1,8 @@
-"""Member 3: degradation-aware lightweight Swin image restoration model.
+"""Member 4: order-aware degradation-conditioned lightweight Swin.
 
-This module intentionally depends only on PyTorch and the Python standard
-library.  It contains the complete model definition so that it can be copied
-into a standalone Google Colab without requiring timm or torchvision.
+The auxiliary order classifier is available only through ``return_aux=True``.
+Normal inference remains completely label-free and returns only the restored
+image.  This standalone module requires PyTorch but no external model library.
 """
 
 from collections.abc import Mapping
@@ -13,13 +13,13 @@ from torch import Tensor, nn
 import torch.nn.functional as F
 
 
-MODEL_NAME = "Degradation-aware Swin"
+MODEL_NAME = "Final Order-aware Swin"
 INPUT_SHAPE = (1, 128, 128)
 OUTPUT_SHAPE = (1, 256, 256)
+ORDER_NAMES = ("GSD", "GDS", "SGD", "SDG", "DGS", "DSG")
 
 
 def _window_partition(x: Tensor, window_size: int) -> Tensor:
-    """Partition a channels-last image into non-overlapping windows."""
     b, h, w, c = x.shape
     if h % window_size or w % window_size:
         raise ValueError(
@@ -44,7 +44,6 @@ def _window_partition(x: Tensor, window_size: int) -> Tensor:
 def _window_reverse(
     windows: Tensor, window_size: int, height: int, width: int
 ) -> Tensor:
-    """Reverse :func:`_window_partition` into a channels-last image."""
     windows_per_image = (height // window_size) * (width // window_size)
     if windows.shape[0] % windows_per_image:
         raise ValueError("Window batch cannot be reversed to the requested size.")
@@ -65,8 +64,6 @@ def _window_reverse(
 
 
 class DropPath(nn.Module):
-    """Per-sample stochastic depth."""
-
     def __init__(self, probability: float = 0.0) -> None:
         super().__init__()
         if not 0.0 <= probability < 1.0:
@@ -107,7 +104,7 @@ class MLP(nn.Module):
 
 
 class WindowAttention(nn.Module):
-    """Window multi-head self-attention with learned relative position bias."""
+    """Window attention with custom relative-position bias."""
 
     def __init__(
         self,
@@ -131,7 +128,6 @@ class WindowAttention(nn.Module):
         self.relative_position_bias_table = nn.Parameter(
             torch.zeros(relative_positions, num_heads)
         )
-
         coordinates = torch.stack(
             torch.meshgrid(
                 torch.arange(window_size),
@@ -147,9 +143,10 @@ class WindowAttention(nn.Module):
         relative_coordinates[:, :, 0] += window_size - 1
         relative_coordinates[:, :, 1] += window_size - 1
         relative_coordinates[:, :, 0] *= 2 * window_size - 1
-        relative_position_index = relative_coordinates.sum(-1)
         self.register_buffer(
-            "relative_position_index", relative_position_index, persistent=True
+            "relative_position_index",
+            relative_coordinates.sum(-1),
+            persistent=True,
         )
 
         self.qkv = nn.Linear(dim, 3 * dim, bias=qkv_bias)
@@ -163,18 +160,14 @@ class WindowAttention(nn.Module):
         expected_tokens = self.window_size * self.window_size
         if token_count != expected_tokens or channels != self.dim:
             raise ValueError(
-                f"Expected window tokens [B,{expected_tokens},{self.dim}], "
-                f"received {tuple(x.shape)}."
+                f"Expected [B,{expected_tokens},{self.dim}], got {tuple(x.shape)}."
             )
 
-        qkv = self.qkv(x)
-        qkv = qkv.reshape(
+        qkv = self.qkv(x).reshape(
             b_windows, token_count, 3, self.num_heads, self.head_dim
         )
-        qkv = qkv.permute(2, 0, 3, 1, 4)
-        query, key, value = qkv.unbind(0)
-        query = query * self.scale
-        attention = query @ key.transpose(-2, -1)
+        query, key, value = qkv.permute(2, 0, 3, 1, 4).unbind(0)
+        attention = (query * self.scale) @ key.transpose(-2, -1)
 
         relative_bias = self.relative_position_bias_table[
             self.relative_position_index.reshape(-1)
@@ -202,17 +195,15 @@ class WindowAttention(nn.Module):
                 -1, self.num_heads, token_count, token_count
             )
 
-        attention = F.softmax(attention, dim=-1)
-        attention = self.attention_dropout(attention)
+        attention = self.attention_dropout(F.softmax(attention, dim=-1))
         x = (attention @ value).transpose(1, 2).reshape(
             b_windows, token_count, channels
         )
-        x = self.projection(x)
-        return self.projection_dropout(x)
+        return self.projection_dropout(self.projection(x))
 
 
 class FiLMSwinBlock(nn.Module):
-    """A Swin block with a separate identity-safe FiLM map per block."""
+    """Shifted/non-shifted Swin block with its own zero-init FiLM map."""
 
     def __init__(
         self,
@@ -238,33 +229,28 @@ class FiLMSwinBlock(nn.Module):
         self.input_resolution = input_resolution
         self.window_size = window_size
         self.shift_size = shift_size
-
         self.film = nn.Linear(condition_dim, 2 * dim)
-        # gamma is used as (1 + delta_gamma), and a zero projection makes the
-        # complete FiLM operation exactly the identity at initialization.
         nn.init.zeros_(self.film.weight)
         nn.init.zeros_(self.film.bias)
-
         self.norm1 = nn.LayerNorm(dim)
         self.attention = WindowAttention(
-            dim=dim,
-            window_size=window_size,
-            num_heads=num_heads,
+            dim,
+            window_size,
+            num_heads,
             attention_dropout=attention_dropout,
             projection_dropout=dropout,
         )
         self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
         self.norm2 = nn.LayerNorm(dim)
         self.mlp = MLP(dim, int(dim * mlp_ratio), dropout=dropout)
-
         mask = self._make_attention_mask() if shift_size else None
         self.register_buffer("attention_mask", mask, persistent=False)
 
     def _make_attention_mask(self) -> Tensor:
         height, width = self.input_resolution
-        mask = torch.zeros((1, height, width, 1))
         window_size = self.window_size
         shift_size = self.shift_size
+        image_mask = torch.zeros((1, height, width, 1))
         height_slices = (
             slice(0, -window_size),
             slice(-window_size, -shift_size),
@@ -278,15 +264,15 @@ class FiLMSwinBlock(nn.Module):
         region = 0
         for height_slice in height_slices:
             for width_slice in width_slices:
-                mask[:, height_slice, width_slice, :] = region
+                image_mask[:, height_slice, width_slice, :] = region
                 region += 1
-
-        mask_windows = _window_partition(mask, window_size)
-        mask_windows = mask_windows.view(-1, window_size * window_size)
-        attention_mask = mask_windows.unsqueeze(1) - mask_windows.unsqueeze(2)
-        return attention_mask.masked_fill(
-            attention_mask != 0, float(-100.0)
-        ).masked_fill(attention_mask == 0, float(0.0))
+        windows = _window_partition(image_mask, window_size).view(
+            -1, window_size * window_size
+        )
+        mask = windows.unsqueeze(1) - windows.unsqueeze(2)
+        return mask.masked_fill(mask != 0, float(-100.0)).masked_fill(
+            mask == 0, float(0.0)
+        )
 
     def forward(self, x: Tensor, degradation_vector: Tensor) -> Tensor:
         b, height, width, channels = x.shape
@@ -303,35 +289,30 @@ class FiLMSwinBlock(nn.Module):
 
         shortcut = x
         delta_gamma, beta = self.film(degradation_vector).chunk(2, dim=-1)
-        conditioned = x * (1.0 + delta_gamma[:, None, None, :])
-        conditioned = conditioned + beta[:, None, None, :]
-        conditioned = self.norm1(conditioned)
-
+        x = x * (1.0 + delta_gamma[:, None, None, :])
+        x = x + beta[:, None, None, :]
+        x = self.norm1(x)
         if self.shift_size:
-            conditioned = torch.roll(
-                conditioned,
+            x = torch.roll(
+                x,
                 shifts=(-self.shift_size, -self.shift_size),
                 dims=(1, 2),
             )
 
-        windows = _window_partition(conditioned, self.window_size)
-        windows = windows.view(-1, self.window_size * self.window_size, channels)
-        attended_windows = self.attention(windows, self.attention_mask)
-        attended_windows = attended_windows.view(
+        windows = _window_partition(x, self.window_size).view(
+            -1, self.window_size * self.window_size, channels
+        )
+        attended_windows = self.attention(windows, self.attention_mask).view(
             -1, self.window_size, self.window_size, channels
         )
-        attended = _window_reverse(
-            attended_windows, self.window_size, height, width
-        )
-
+        x = _window_reverse(attended_windows, self.window_size, height, width)
         if self.shift_size:
-            attended = torch.roll(
-                attended,
+            x = torch.roll(
+                x,
                 shifts=(self.shift_size, self.shift_size),
                 dims=(1, 2),
             )
-
-        x = shortcut + self.drop_path(attended)
+        x = shortcut + self.drop_path(x)
         return x + self.drop_path(self.mlp(self.norm2(x)))
 
 
@@ -347,8 +328,6 @@ class ResidualCNNBlock(nn.Module):
 
 
 class DegradationEncoder(nn.Module):
-    """Two residual CNN blocks followed by GAP and a 48-D MLP."""
-
     def __init__(self, dim: int = 48, second_linear: bool = True) -> None:
         super().__init__()
         self.blocks = nn.Sequential(
@@ -362,13 +341,11 @@ class DegradationEncoder(nn.Module):
         self.mlp = nn.Sequential(*layers)
 
     def forward(self, x: Tensor) -> Tensor:
-        x = self.blocks(x)
-        x = self.pool(x).flatten(1)
-        return self.mlp(x)
+        return self.mlp(self.pool(self.blocks(x)).flatten(1))
 
 
-class DegradationAwareSwin(nn.Module):
-    """Member 3 restoration network with no degradation-order head."""
+class FinalOrderAwareSwin(nn.Module):
+    """Final model with a masked-training-compatible six-class order head."""
 
     def __init__(
         self,
@@ -380,8 +357,6 @@ class DegradationAwareSwin(nn.Module):
         super().__init__()
         dim = 48
         depth = 6
-        input_resolution = (128, 128)
-
         self.stem = nn.Sequential(
             nn.Conv2d(1, dim, kernel_size=3, padding=1),
             nn.GELU(),
@@ -391,7 +366,12 @@ class DegradationAwareSwin(nn.Module):
             ResidualCNNBlock(dim),
         )
         self.degradation_encoder = DegradationEncoder(
-            dim=dim, second_linear=degradation_second_linear
+            dim, second_linear=degradation_second_linear
+        )
+        self.order_head = nn.Sequential(
+            nn.Linear(dim, dim),
+            nn.GELU(),
+            nn.Linear(dim, len(ORDER_NAMES)),
         )
 
         drop_path_values = torch.linspace(0.0, drop_path_rate, depth).tolist()
@@ -399,7 +379,7 @@ class DegradationAwareSwin(nn.Module):
             [
                 FiLMSwinBlock(
                     dim=dim,
-                    input_resolution=input_resolution,
+                    input_resolution=(128, 128),
                     num_heads=4,
                     window_size=8,
                     shift_size=0 if index % 2 == 0 else 4,
@@ -412,7 +392,6 @@ class DegradationAwareSwin(nn.Module):
                 for index in range(depth)
             ]
         )
-
         self.pre_shuffle = nn.Conv2d(dim, dim * 4, kernel_size=3, padding=1)
         self.pixel_shuffle = nn.PixelShuffle(2)
         self.hr_blocks = nn.Sequential(
@@ -432,7 +411,9 @@ class DegradationAwareSwin(nn.Module):
         if not x.is_floating_point():
             raise TypeError("Model input must be a floating-point tensor.")
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(
+        self, x: Tensor, return_aux: bool = False
+    ) -> Tensor | tuple[Tensor, Tensor]:
         self._validate_input(x)
         bicubic = F.interpolate(
             x,
@@ -444,20 +425,22 @@ class DegradationAwareSwin(nn.Module):
         stem = self.stem(x)
         content = self.content_encoder(stem)
         degradation_vector = self.degradation_encoder(stem)
+        logits = self.order_head(degradation_vector) if return_aux else None
 
         features = content.permute(0, 2, 3, 1).contiguous()
         for block in self.swin_blocks:
             features = block(features, degradation_vector)
         features = features.permute(0, 3, 1, 2).contiguous()
-
-        # Residual fusion explicitly anchors the transformer result to the stem.
         features = features + stem
         features = self.pixel_shuffle(self.pre_shuffle(features))
         features = self.hr_blocks(features)
-        residual = self.reconstruction(features)
-        output = bicubic + residual
+        output = bicubic + self.reconstruction(features)
         if tuple(output.shape[1:]) != OUTPUT_SHAPE:
             raise RuntimeError(f"Unexpected model output shape {tuple(output.shape)}.")
+        if return_aux:
+            if logits is None:  # Keeps static analyzers honest.
+                raise RuntimeError("Auxiliary logits were not created.")
+            return output, logits
         return output
 
 
@@ -480,21 +463,22 @@ def _validate_exact_architecture(config: Mapping[str, Any]) -> None:
         "num_heads": 4,
         "window_size": 8,
         "mlp_ratio": 2.0,
+        "num_order_classes": 6,
         "upscale": 2,
     }
     for key, expected in expected_values.items():
         if key in config and config[key] != expected:
             raise ValueError(
-                f"Member 3 architecture requires {key}={expected!r}; "
+                f"Member 4 architecture requires {key}={expected!r}; "
                 f"received {config[key]!r}."
             )
 
 
-def build_model(config: Mapping[str, Any] | None = None) -> DegradationAwareSwin:
-    """Build the exact six-block, 48-channel Member 3 architecture."""
+def build_model(config: Mapping[str, Any] | None = None) -> FinalOrderAwareSwin:
+    """Build the exact six-block, 48-channel final architecture."""
     model_config = _extract_model_config(config)
     _validate_exact_architecture(model_config)
-    return DegradationAwareSwin(
+    return FinalOrderAwareSwin(
         dropout=float(model_config.get("dropout", 0.0)),
         attention_dropout=float(model_config.get("attention_dropout", 0.0)),
         drop_path_rate=float(model_config.get("drop_path_rate", 0.0)),
@@ -510,7 +494,6 @@ def _checkpoint_state(checkpoint: Any) -> tuple[Mapping[str, Any], Mapping[str, 
     config = checkpoint.get("config", checkpoint.get("model_config", {}))
     if not isinstance(config, Mapping):
         config = {}
-
     state: Any = None
     for key in ("model_state_dict", "state_dict", "model"):
         candidate = checkpoint.get(key)
@@ -525,7 +508,6 @@ def _checkpoint_state(checkpoint: Any) -> tuple[Mapping[str, Any], Mapping[str, 
         raise KeyError(
             "Checkpoint has no model_state_dict/state_dict/model tensor mapping."
         )
-
     cleaned = dict(state)
     for prefix in ("module.", "_orig_mod.", "model."):
         if cleaned and all(key.startswith(prefix) for key in cleaned):
@@ -533,14 +515,14 @@ def _checkpoint_state(checkpoint: Any) -> tuple[Mapping[str, Any], Mapping[str, 
     return config, cleaned
 
 
-def load_model(checkpoint_path: str, device: str | torch.device) -> DegradationAwareSwin:
-    """Load an actual Member 3 checkpoint and return an eval-mode model."""
+def load_model(checkpoint_path: str, device: str | torch.device) -> FinalOrderAwareSwin:
+    """Load a Member 4 checkpoint, strictly, and put it in evaluation mode."""
     target_device = torch.device(device)
     try:
         checkpoint = torch.load(
             checkpoint_path, map_location="cpu", weights_only=False
         )
-    except TypeError:  # Compatibility with older Colab PyTorch releases.
+    except TypeError:
         checkpoint = torch.load(checkpoint_path, map_location="cpu")
     config, state = _checkpoint_state(checkpoint)
     model = build_model(config)
@@ -556,7 +538,7 @@ def predict(
     lr_tensor: Tensor,
     device: str | torch.device,
 ) -> Tensor:
-    """Run label-free restoration and return ``[B,1,256,256]``."""
+    """Run final image inference without an order label or auxiliary output."""
     if not isinstance(lr_tensor, Tensor):
         raise TypeError("lr_tensor must be a torch.Tensor.")
     if lr_tensor.ndim != 4 or tuple(lr_tensor.shape[1:]) != INPUT_SHAPE:
@@ -585,7 +567,8 @@ def predict(
 
 __all__ = [
     "MODEL_NAME",
-    "DegradationAwareSwin",
+    "ORDER_NAMES",
+    "FinalOrderAwareSwin",
     "DegradationEncoder",
     "build_model",
     "load_model",

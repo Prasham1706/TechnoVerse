@@ -1,4 +1,4 @@
-"""Stateless Vercel UI for the trained DA-SwinSR model.
+"""Stateless Vercel UI for the trained Final Order-aware Swin model (Member 4).
 
 The browser sends the complete .npy payload in one request and receives inline
 previews/downloads in one response. This avoids Gradio queue and /tmp state
@@ -148,7 +148,7 @@ def _restore(payload: bytes) -> dict[str, object]:
 
 
 app = FastAPI(
-    title="DA-SwinSR",
+    title="Final Order-aware Swin · TechnoVerse",
     docs_url=None,
     redoc_url=None,
     openapi_url=None,
@@ -211,8 +211,8 @@ INDEX_HTML = """<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Team TechnoVerse DA-SwinSR semiconductor image restoration demo">
-  <title>DA-SwinSR · Team TechnoVerse</title>
+  <meta name="description" content="Team TechnoVerse Final Order-aware Swin semiconductor image restoration demo">
+  <title>Order-aware Swin · Team TechnoVerse</title>
   <style>
     :root {
       color-scheme: dark;
@@ -292,8 +292,8 @@ INDEX_HTML = """<!doctype html>
   <main class="page">
     <section class="hero">
       <div class="hero-top"><div><div class="eyebrow">TEAM TECHNOVERSE · PRETRAINED RESTORATION MODEL</div>
-        <h1>DA-SwinSR Semiconductor Image Restoration</h1>
-        <p>Restore one noisy grayscale image and generate a clear 2× super-resolved output using the team's validation-selected model.</p>
+        <h1>Final Order-aware Swin — Semiconductor Image Restoration</h1>
+        <p>Restore one noisy grayscale image and generate a clear 2× super-resolved output using the team's validation-selected Member 4 checkpoint.</p>
       </div><div class="ready"><span class="dot"></span>Model ready · __DEVICE__</div></div>
       <div class="chips"><span class="chip">128 × 128 input</span><span class="chip">256 × 256 output</span>
         <span class="chip">Inference only — no retraining</span><span class="chip">Grayscale NumPy input</span></div>
@@ -302,7 +302,7 @@ INDEX_HTML = """<!doctype html>
     <section class="steps" aria-label="Demo workflow">
       <div class="step"><b class="num">1</b><div><strong>Upload input</strong><span>.npy · grayscale · 128 × 128 · maximum 1 MB</span></div></div>
       <div class="step"><b class="num">2</b><div><strong>Run pretrained model</strong><span>One secure request; no checkpoint upload</span></div></div>
-      <div class="step"><b class="num">3</b><div><strong>Compare and download</strong><span>Original · bicubic baseline · DA-SwinSR result</span></div></div>
+      <div class="step"><b class="num">3</b><div><strong>Compare and download</strong><span>Original · bicubic baseline · Order-aware Swin result</span></div></div>
     </section>
 
     <section class="workspace">
@@ -322,29 +322,29 @@ INDEX_HTML = """<!doctype html>
     </section>
 
     <h2 class="results-title">Step 3 — Compare the results</h2>
-    <p class="muted">Compare the noisy input, standard bicubic interpolation, and DA-SwinSR restoration side by side. All previews use the same clipped <code>[0, 1]</code> display range.</p>
+    <p class="muted">Compare the noisy input, standard bicubic interpolation, and Order-aware Swin restoration side by side. All previews use the same clipped <code>[0, 1]</code> display range.</p>
     <section class="results">
       <article class="card result-card"><h3>Original input</h3><span class="muted">128 × 128 noisy capture</span><div class="image-frame"><span class="placeholder">Result appears here</span><img id="input-image" alt="Uploaded noisy input"></div></article>
       <article class="card result-card"><h3>Bicubic baseline</h3><span class="muted">256 × 256 standard interpolation</span><div class="image-frame"><span class="placeholder">Result appears here</span><img id="bicubic-image" alt="Bicubic baseline"></div></article>
-      <article class="card result-card selected"><h3>DA-SwinSR restoration</h3><span class="muted">256 × 256 trained-model output</span><div class="image-frame"><span class="placeholder">Result appears here</span><img id="restored-image" alt="DA-SwinSR restored output"></div></article>
+      <article class="card result-card selected"><h3>Order-aware Swin restoration</h3><span class="muted">256 × 256 trained-model output</span><div class="image-frame"><span class="placeholder">Result appears here</span><img id="restored-image" alt="Order-aware Swin restored output"></div></article>
     </section>
 
     <section class="downloads">
       <article class="card"><h3>Download results</h3><div class="download-grid">
-        <a class="download" id="npy-download" download="DA_SwinSR_restored.npy"><span><b>Scientific array</b><small>256 × 256 · float32 .npy</small></span><b>Download</b></a>
-        <a class="download" id="png-download" download="DA_SwinSR_preview.png"><span><b>Visual preview</b><small>256 × 256 · clipped PNG</small></span><b>Download</b></a>
+        <a class="download" id="npy-download" download="OrderAwareSwin_restored.npy"><span><b>Scientific array</b><small>256 × 256 · float32 .npy</small></span><b>Download</b></a>
+        <a class="download" id="png-download" download="OrderAwareSwin_preview.png"><span><b>Visual preview</b><small>256 × 256 · clipped PNG</small></span><b>Download</b></a>
       </div><p class="muted" id="download-note">Files appear after a successful restoration.</p></article>
       <article class="card responsible"><h3>Responsible use</h3><p class="muted">Preserve the raw capture. This research output supports visual analysis and is not a replacement measurement or an automated production-inspection decision.</p></article>
     </section>
 
     <section class="card evidence"><h2>Internal held-out evaluation</h2>
       <p class="muted">Mean results on the fixed 320-image paired internal test set using the validation-selected checkpoint.</p>
-      <div class="metrics"><div class="metric"><b>29.05 dB</b><strong>PSNR ↑</strong><br><span>Higher is better</span></div>
-        <div class="metric"><b>0.7663</b><strong>SSIM ↑</strong><br><span>Higher is better</span></div>
-        <div class="metric"><b>0.2819</b><strong>LPIPS ↓</strong><br><span>Lower is better</span></div></div>
+      <div class="metrics"><div class="metric"><b>28.88 dB</b><strong>PSNR ↑</strong><br><span>Higher is better</span></div>
+        <div class="metric"><b>0.7662</b><strong>SSIM ↑</strong><br><span>Higher is better</span></div>
+        <div class="metric"><b>0.2773</b><strong>LPIPS ↓</strong><br><span>Lower is better</span></div></div>
       <p class="muted">These values do not score the uploaded image and are not public-leaderboard or manufacturing-line validation results.</p>
       <details id="technical"><summary>Technical run details</summary><p id="technical-copy">Run a restoration to view device, parameters, latency and output range.</p></details>
-      <details><summary>Model architecture</summary><p>CNN feature extraction → learned 48-D degradation-aware latent conditioning → six FiLM-conditioned Swin blocks → PixelShuffle 2× → high-resolution refinement with a bicubic residual path.</p></details>
+      <details><summary>Model architecture</summary><p>CNN feature extraction → learned 48-D <strong>order-aware</strong> degradation-conditioned latent → six FiLM-conditioned Swin blocks → PixelShuffle 2× → high-resolution refinement with a bicubic residual path → auxiliary 6-class degradation-order head (training only).</p></details>
     </section>
   </main>
   <script>

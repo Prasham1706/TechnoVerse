@@ -1,4 +1,4 @@
-"""Standalone Gradio deployment for the trained DA-SwinSR checkpoint.
+"""Standalone Gradio deployment for the trained Final Order-aware Swin checkpoint (Member 4).
 
 This application performs inference only. It never accepts model checkpoints
 from users and it never trains or fine-tunes the model.
@@ -28,9 +28,9 @@ ROOT = Path(__file__).resolve().parent
 CHECKPOINT_PATH = ROOT / "weights" / "checkpoint_best.pth"
 METRICS_PATH = ROOT / "metadata" / "metrics.json"
 EXPECTED_CHECKPOINT_SHA256 = (
-    "9eae0b4a5fe9d978dc14603e64cf2ac5b099d98e8ecd02af68b8624ebd06549b"
+    "4a0f600993e6d7e0948fff8e00b535743e6da237b09ac6c554ff21c0ad1fb8c4"
 )
-EXPECTED_PARAMETER_COUNT = 568_681
+EXPECTED_PARAMETER_COUNT = 571_327
 
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
@@ -52,8 +52,8 @@ try:
 except TypeError:
     CHECKPOINT_PAYLOAD = torch.load(CHECKPOINT_PATH, map_location="cpu")
 
-if CHECKPOINT_PAYLOAD.get("model_name") != "Degradation-aware Swin":
-    raise ValueError("The bundled checkpoint is not the expected DA-SwinSR model.")
+if CHECKPOINT_PAYLOAD.get("model_name") != "Final Order-aware Swin":
+    raise ValueError("The bundled checkpoint is not the expected Final Order-aware Swin model.")
 if "normalization_stats" not in CHECKPOINT_PAYLOAD:
     raise KeyError("The checkpoint does not contain normalization_stats.")
 
@@ -91,7 +91,7 @@ if DEVICE.type == "cuda":
 
 DEFAULT_STATUS = """
 ### Ready for an input
-Upload one valid **128 × 128 grayscale `.npy`** file, then run the pretrained model.
+Upload one valid **128 × 128 grayscale `.npy`** file, then run the Final Order-aware Swin model.
 """
 
 DEFAULT_TECHNICAL_DETAILS = """
@@ -389,7 +389,7 @@ CSS = """
 """
 
 with gr.Blocks(
-    title="DA-SwinSR Semiconductor Restoration Demo",
+    title="Final Order-aware Swin · Team TechnoVerse",
     analytics_enabled=False,
     delete_cache=(300, 600),
 ) as demo:
@@ -398,10 +398,10 @@ with gr.Blocks(
 <section class="hero-card">
   <div class="hero-top">
     <div>
-      <div class="eyebrow">TEAM TECHNOVERSE · PRETRAINED RESTORATION MODEL</div>
-      <h1>DA-SwinSR Semiconductor Image Restoration</h1>
+      <div class="eyebrow">TEAM TECHNOVERSE · MEMBER 4 · PRETRAINED RESTORATION MODEL</div>
+      <h1>Final Order-aware Swin — Semiconductor Image Restoration</h1>
       <p>Restore one noisy grayscale image and generate a clear 2× super-resolved
-      output using the team's validation-selected model.</p>
+      output using the team's validation-selected Member 4 checkpoint.</p>
     </div>
     <div class="ready-badge"><span class="ready-dot"></span>Model ready · {DEVICE.type.upper()}</div>
   </div>
@@ -410,6 +410,7 @@ with gr.Blocks(
     <span class="hero-chip">256 × 256 output</span>
     <span class="hero-chip">Inference only — no retraining</span>
     <span class="hero-chip">Grayscale NumPy input</span>
+    <span class="hero-chip">Order-aware degradation conditioning</span>
   </div>
 </section>
 """,
@@ -420,7 +421,7 @@ with gr.Blocks(
 <section class="steps-grid">
   <div class="step-card"><span class="step-number">1</span><div class="step-copy"><strong>Upload input</strong><span>.npy · grayscale · 128 × 128 · maximum 1 MB</span></div></div>
   <div class="step-card"><span class="step-number">2</span><div class="step-copy"><strong>Run pretrained model</strong><span>No training or checkpoint upload is required</span></div></div>
-  <div class="step-card"><span class="step-number">3</span><div class="step-copy"><strong>Compare and download</strong><span>Original · bicubic baseline · DA-SwinSR result</span></div></div>
+  <div class="step-card"><span class="step-number">3</span><div class="step-copy"><strong>Compare and download</strong><span>Original · bicubic baseline · Order-aware Swin result</span></div></div>
 </section>
 """,
         elem_id="workflow",
@@ -459,10 +460,8 @@ values · no NaN/Inf · maximum 1 MB
 
     gr.Markdown(
         """
-## Step 3 — Compare the results
-Compare the noisy input, standard bicubic interpolation, and the DA-SwinSR
-restoration side by side. All previews use the same clipped `[0, 1]` display
-range.
+## Step 3 — Compare
+<p class="muted">Compare the noisy input, standard bicubic interpolation, and Final Order-aware Swin restoration side by side. All previews use the same clipped `[0, 1]` display range.</p>
 """,
         elem_id="comparison-heading",
     )
@@ -484,7 +483,7 @@ range.
             elem_classes=["surface-card", "preview-card"],
             elem_id="model-result-card",
         ):
-            gr.Markdown("### DA-SwinSR restoration\n<div class='panel-subtitle'>256 × 256 trained-model output</div>")
+            gr.Markdown("### Order-aware Swin restoration\n<div class='panel-subtitle'>256 × 256 trained-model output</div>")
             restored_preview = gr.HTML(
                 value=EMPTY_PREVIEW,
                 sanitize_html=False,
@@ -534,9 +533,10 @@ not a replacement measurement or an automated production-inspection decision.
 - SSIM: **{TEST_METRICS['ssim_mean']:.4f} ± {TEST_METRICS['ssim_std']:.4f}**
 - LPIPS: **{TEST_METRICS['lpips_mean']:.4f} ± {TEST_METRICS['lpips_std']:.4f}** *(lower is better)*
 
-**Architecture:** CNN feature extraction → learned 48-D degradation-aware
-latent conditioning → six FiLM-conditioned Swin blocks → PixelShuffle 2× →
-high-resolution refinement with a bicubic residual path.
+**Architecture:** CNN feature extraction → learned 48-D **order-aware** degradation-conditioned
+latent → six FiLM-conditioned Swin blocks → PixelShuffle 2× →
+high-resolution refinement with a bicubic residual path → auxiliary 6-class
+degradation-order head (used during training only).
 """
         )
 
