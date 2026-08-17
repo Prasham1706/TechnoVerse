@@ -25,7 +25,7 @@ from model import load_model, predict
 
 
 ROOT = Path(__file__).resolve().parent
-CHECKPOINT_PATH = ROOT / "weights" / "checkpoint_best.pth"
+CHECKPOINT_PATH = ROOT / "models" / "checkpoint_best.pth"
 METRICS_PATH = ROOT / "metadata" / "metrics.json"
 EXPECTED_CHECKPOINT_SHA256 = (
     "4a0f600993e6d7e0948fff8e00b535743e6da237b09ac6c554ff21c0ad1fb8c4"

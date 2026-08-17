@@ -1,0 +1,85 @@
+seed: 2026
+protocol:
+  protocol_pair_count: 3200
+  train_count: 2560
+  val_count: 320
+  test_count: 320
+  split_seed: 2026
+  note: Corrected from the plan's off-by-one 3,199 count after a full audit found
+    3,200 valid pairs.
+training:
+  batch_size: 4
+  gradient_accumulation_steps: 2
+  amp: true
+  optimizer: AdamW
+  learning_rate: 0.0002
+  weight_decay: 0.0001
+  scheduler: 5-epoch linear warmup then cosine decay
+  warmup_epochs: 5
+  max_epochs: 100
+  num_workers: 0
+  gradient_clip_norm: 1.0
+  resume: true
+  checkpoint_selection: validation PSNR only
+  oom_fallback: batch_size=2, gradient_accumulation_steps=4
+preflight:
+  overfit_samples: 4
+  overfit_steps: 8
+loss:
+  name: 0.7*L1 + 0.2*(1-SSIM) + 0.1*edge + 0.05*masked order CE
+  l1_weight: 0.7
+  ssim_weight: 0.2
+  edge_weight: 0.1
+  order_weight: 0.05
+evaluation:
+  batch_size: 1
+  lpips: true
+  prediction_clipping: false
+  border_crop: 0
+  order_samples_per_order: 320
+  fixed_synthetic_seed: 90210
+member: 4
+model_name: Final Order-aware Swin
+model:
+  in_channels: 1
+  out_channels: 1
+  dim: 48
+  depth: 6
+  num_heads: 4
+  window_size: 8
+  mlp_ratio: 2.0
+  num_order_classes: 6
+  upscale: 2
+  dropout: 0.0
+  attention_dropout: 0.0
+  drop_path_rate: 0.0
+  degradation_second_linear: true
+synthetic_degradation:
+  enabled: true
+  synthetic_probability: 0.3
+  all_orders:
+  - GSD
+  - GDS
+  - SGD
+  - SDG
+  - DGS
+  - DSG
+  id_train_orders:
+  - GSD
+  - GDS
+  - SGD
+  - DGS
+  ood_orders:
+  - SDG
+  - DSG
+  gaussian_sigma_fraction_range:
+  - 0.005
+  - 0.03
+  speckle_sigma_fraction_range:
+  - 0.01
+  - 0.05
+  downsampling: bicubic antialiased 256x256 to 128x128
+  clipping: false
+  severity_note: Explicit starting ranges relative to audited training-GT range; inspect
+    generated examples and report any change.
+  data_range: 1.0
