@@ -4,7 +4,7 @@ services:
     runtime: python
     plan: free
     buildCommand: "pip install -r requirements.txt"
-    startCommand: "python app.py"
+    startCommand: "python run.py"
     healthCheckPath: /
     envVars:
       - key: PYTHONDONTWRITEBYTECODE
